@@ -62,32 +62,54 @@ flowchart TD
 
 ## Installation
 
-### Client SDK (Lightweight)
+### Track A: Python Client SDK (Lightweight & Pure Python)
+For application developers connecting to an existing N-ATLAS server or hosted API endpoint. Installs in seconds with **zero C++ compilers or heavy GPU dependencies**:
+
 ```bash
 # Using uv (Recommended)
-uv add natlas
+uv add n-atlas
 
 # Using pip
-pip install natlas
+pip install n-atlas
 ```
 
-### With Voice / Audio Transcoding
+Optional audio transcoding (PyAV in-memory WhatsApp/browser audio resampler):
 ```bash
-# Using uv (Recommended)
-uv add "natlas[audio]"
-
-# Using pip
-pip install "natlas[audio]"
+uv add "n-atlas[audio]"
+# or: pip install "n-atlas[audio]"
 ```
 
-### With Local GPU Serving Engine
+---
+
+### Track B: Local Sovereign Serving Engine (Hardware-Accelerated)
+For developers running the 8B LLM and ASR models locally on their own workstation or GPU server.
+
+#### 1. Clone & Synchronize
 ```bash
-# Using uv (Recommended)
-uv add "natlas[server]"
-
-# Using pip
-pip install "natlas[server]"
+git clone https://github.com/your-org/n-atlas.git
+cd n-atlas/natlas-python
+uv sync
 ```
+
+#### 2. One-Command Hardware Bootstrap (Automated)
+Run `natlas setup` to automatically detect your operating system and GPU, verify Hugging Face authentication, and install the matching pre-compiled acceleration binary:
+
+```bash
+uv run natlas setup
+```
+
+#### 3. Manual Installation (Alternative)
+If you prefer installing pre-compiled wheels directly without CMake or Visual Studio C++ compilers:
+
+* **Windows (NVIDIA GPU / CUDA 12.x & 13.x):**
+  ```bash
+  uv pip install llama-cpp-python --extra-index-url https://abetlen.github.io/llama-cpp-python/whl/cu124
+  ```
+
+* **macOS (Apple Silicon Metal) or CPU-only:**
+  ```bash
+  uv pip install llama-cpp-python --extra-index-url https://abetlen.github.io/llama-cpp-python/whl/cpu
+  ```
 
 ---
 
@@ -135,23 +157,32 @@ print("Model:", result.model)
 
 ## Local Serving CLI
 
-Launch the local inference server offloading GGUF layers to your CUDA GPU:
-
+### Pull Sovereign Weights (Ollama-style)
 ```bash
-# Using uv (Recommended)
-uv run natlas serve --model ./models/N-ATLaS.Q4_K_M.gguf --gpu-layers 32 --port 8000
+# Pull 4-bit quantized N-ATLAS LLM (~4.9 GB)
+uv run natlas pull n-atlas:q4
 
-# Using pip / global environment
-natlas serve --model ./models/N-ATLaS.Q4_K_M.gguf --gpu-layers 32 --port 8000
+# Pull all 4 sovereign speech models (Yorùbá, Hausa, Igbo, English)
+uv run natlas pull asr
 ```
 
-Start interactive terminal chat:
-```bash
-# Using uv (Recommended)
-uv run natlas chat --language yoruba
+### Launch Inference Server
+Launch the local OpenAI-compatible inference server. If weights or GPU wheels are missing, `natlas serve` will prompt to acquire them automatically:
 
-# Using pip
-natlas chat --language yoruba
+```bash
+# GPU acceleration (32 layers offloaded to CUDA)
+uv run natlas serve --gpu-layers 32 --port 8000
+
+# Automated / non-interactive bootstrap (CI or Docker)
+uv run natlas serve --gpu-layers 32 --yes
+
+# Lightweight mock mode (no weights loaded)
+uv run natlas serve --mock
+```
+
+### Interactive Terminal Chat
+```bash
+uv run natlas chat --language yoruba
 ```
 
 ---

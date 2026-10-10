@@ -73,6 +73,10 @@ class LlamaCppEngine:
         try:
             import importlib
 
+            from natlas.cli.hardware import resolve_cuda_dlls
+
+            resolve_cuda_dlls()
+
             llama_mod = importlib.import_module("llama_cpp")
             llama_cls = llama_mod.Llama
             self._llm = llama_cls(
@@ -81,7 +85,7 @@ class LlamaCppEngine:
                 n_ctx=self.n_ctx,
                 verbose=False,
             )
-        except (ImportError, ModuleNotFoundError) as exc:
+        except (ImportError, ModuleNotFoundError, RuntimeError, OSError) as exc:
             raise ImportError(
                 "llama-cpp-python is required for local GGUF inference. "
                 "Install via: uv pip install llama-cpp-python (or uv sync --extra llama)"

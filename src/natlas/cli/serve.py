@@ -24,10 +24,17 @@ def serve(
     mock: bool = typer.Option(
         False, "--mock", help="Run in mock/pass-through mode (no weights loaded)"
     ),
+    yes: bool = typer.Option(
+        False,
+        "--yes",
+        "-y",
+        help="Auto-confirm missing acceleration wheel installation",
+    ),
 ) -> None:
     """Launch the local OpenAI-compatible N-ATLAS REST API server."""
     import uvicorn
 
+    from natlas.cli.hardware import ensure_llama_cpp, is_llama_cpp_installed
     from natlas.cli.pull import pull_model, resolve_cached_llm
     from natlas.exceptions import AudioProcessingError
     from natlas.server.app import create_app
@@ -67,6 +74,9 @@ def serve(
                     )
 
         if model_path_to_load:
+            if not is_llama_cpp_installed():
+                ensure_llama_cpp(auto_yes=yes)
+
             try:
                 console.print(
                     f"[cyan]Loading LLM model from {model_path_to_load} with {n_gpu_layers} GPU layers...[/cyan]"
