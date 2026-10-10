@@ -92,9 +92,69 @@ def create_app(
         active_engine = engine
         if active_engine is None:
             # Fallback mock/echo response when engine is not initialized
-            from natlas.api.types import ChatCompletionChoice, ChatCompletionMessage
+            from natlas.api.types import (
+                ChatCompletionChoice,
+                ChatCompletionChunk,
+                ChatCompletionChunkChoice,
+                ChatCompletionChunkDelta,
+                ChatCompletionMessage,
+            )
 
-            mock_content = f"[N-ATLAS echo] Received {len(guarded_messages)} messages."
+            user_text = ""
+            for msg in reversed(guarded_messages):
+                if msg.get("role") == "user":
+                    user_text = msg.get("content", "")
+                    break
+
+            lang_label = lang.capitalize() if lang else "Nigerian Multilingual"
+            mock_reply = (
+                f"[N-ATLAS Sovereign Engine (Mock Mode)]: Ẹ n lẹ o! Sannu! Nnọọ! "
+                f"Received message: \"{user_text}\" with language target '{lang_label}'. "
+                "The dialect tone guard and orthography pipeline are active. "
+                "To load the fine-tuned 8B neural weights, launch via: natlas serve --model <path_to_N-ATLaS.gguf>"
+            )
+
+            if request.stream:
+
+                async def mock_event_generator() -> AsyncIterator[str]:
+                    import asyncio
+
+                    words = mock_reply.split(" ")
+                    for word in words:
+                        chunk = ChatCompletionChunk(
+                            id="natlas-mock-stream",
+                            created=1728345600,
+                            model=request.model,
+                            choices=[
+                                ChatCompletionChunkChoice(
+                                    index=0,
+                                    delta=ChatCompletionChunkDelta(
+                                        role="assistant", content=word + " "
+                                    ),
+                                    finish_reason=None,
+                                )
+                            ],
+                        )
+                        yield chunk.model_dump_json()
+                        await asyncio.sleep(0.02)
+
+                    final_chunk = ChatCompletionChunk(
+                        id="natlas-mock-stream",
+                        created=1728345600,
+                        model=request.model,
+                        choices=[
+                            ChatCompletionChunkChoice(
+                                index=0,
+                                delta=ChatCompletionChunkDelta(role=None, content=""),
+                                finish_reason="stop",
+                            )
+                        ],
+                    )
+                    yield final_chunk.model_dump_json()
+                    yield "[DONE]"
+
+                return EventSourceResponse(mock_event_generator())
+
             return ChatCompletionResponse(
                 id="natlas-echo",
                 created=1728345600,
@@ -103,7 +163,7 @@ def create_app(
                     ChatCompletionChoice(
                         index=0,
                         message=ChatCompletionMessage(
-                            role="assistant", content=mock_content
+                            role="assistant", content=mock_reply
                         ),
                         finish_reason="stop",
                     )

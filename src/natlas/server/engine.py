@@ -1,6 +1,7 @@
 """Inference engine managing local GGUF and Whisper ASR models."""
 
 import os
+import sys
 from collections.abc import Iterator
 from pathlib import Path
 from typing import Protocol
@@ -173,7 +174,7 @@ class LlamaCppEngine:
 import io
 import logging
 import wave
-from collections.abc import Iterable, Iterator
+from collections.abc import Iterator
 from typing import Final
 
 import numpy as np
@@ -206,25 +207,23 @@ def _wav_to_float32_array(audio_wav_bytes: bytes) -> np.ndarray:
         raise AudioProcessingError(f"Failed to decode WAV audio frames: {exc}") from exc
 
 
-class WhisperModelProtocol(Protocol):
-    """Protocol for faster_whisper WhisperModel."""
+class ASRModelPipelineProtocol(Protocol):
+    """Protocol for Hugging Face Transformers ASR pipeline."""
 
-    def transcribe(
+    def __call__(
         self,
-        audio: str | io.BytesIO | np.ndarray,
-        *,
-        language: str | None = None,
-    ) -> tuple[Iterable[object], object]: ...
+        inputs: np.ndarray,
+        **kwargs: object,
+    ) -> dict[str, object] | list[dict[str, object]]: ...
 
 
 class ASREngine:
-    """ASR Inference engine using faster-whisper with resilient fallback."""
+    """Strict Sovereign ASR Inference engine running official NCAIR1 checkpoints."""
 
     def __init__(
         self,
         device: str = "auto",
         compute_type: str | None = None,
-        fallback_model: str = "tiny",
     ) -> None:
         dotenv_path = find_dotenv()
         if dotenv_path:
@@ -232,77 +231,104 @@ class ASREngine:
 
         os.environ.setdefault("HF_HUB_DISABLE_SYMLINKS_WARNING", "1")
 
-        self.device = device
-        self.compute_type = compute_type
-        self.fallback_model = fallback_model
-        self._models: dict[str, tuple[WhisperModelProtocol, str]] = {}
-
-    def _init_whisper_model(
-        self, model_id: str, device: str, compute_type: str
-    ) -> WhisperModelProtocol:
-        from faster_whisper import WhisperModel
-
-        token = os.environ.get("HF_TOKEN")
-        model: WhisperModelProtocol = WhisperModel(
-            model_id,
-            device=device,
-            compute_type=compute_type,
-            use_auth_token=token,
-        )
-        return model
-
-    def _resolve_and_load(
-        self, requested_model: str
-    ) -> tuple[WhisperModelProtocol, str]:
-        """Load requested model with fallback to open Whisper and CPU if CUDA fails."""
-        if requested_model in self._models:
-            return self._models[requested_model]
-
-        device = "cuda" if self.device in ("auto", "cuda") else "cpu"
-        compute_type = (
-            self.compute_type
-            if self.compute_type is not None
-            else ("float16" if device == "cuda" else "int8")
-        )
-
-        model_candidates = [requested_model]
-        if requested_model != self.fallback_model:
-            model_candidates.append(self.fallback_model)
-
-        last_error: Exception | None = None
-
-        for candidate in model_candidates:
-            # First attempt with chosen device (CUDA or CPU)
+        # Windows DLL discovery for NVIDIA cuBLAS if installed
+        if sys.platform == "win32":
             try:
-                model = self._init_whisper_model(candidate, device, compute_type)
-                self._models[requested_model] = (model, candidate)
-                return model, candidate
-            except Exception as exc:  # noqa: BLE001
-                last_error = exc
-                logger.warning(
-                    "Failed to load ASR model '%s' on %s (%s): %s",
-                    candidate,
-                    device,
-                    compute_type,
-                    exc,
+                import importlib
+
+                cublas_lib = importlib.import_module("nvidia.cublas.lib")
+                cublas_file = getattr(cublas_lib, "__file__", None)
+                if cublas_file:
+                    cublas_dir = os.path.dirname(cublas_file)
+                    if os.path.exists(cublas_dir):
+                        os.add_dll_directory(cublas_dir)
+            except (ImportError, AttributeError):
+                pass
+
+        self.requested_device = device
+        self.compute_type = compute_type
+        self._token: str | None = os.environ.get("HF_TOKEN")
+        self._active_device: str = self._resolve_device(device)
+        self._pipelines: dict[str, ASRModelPipelineProtocol] = {}
+
+        # Verify access on initialization
+        self._verify_sovereign_access()
+
+    def _resolve_device(self, requested: str) -> str:
+        """Resolve requested device to available PyTorch device."""
+        if requested in ("auto", "cuda"):
+            try:
+                import torch
+
+                if torch.cuda.is_available():
+                    return "cuda"
+            except ImportError:
+                pass
+            logger.info(
+                "N-ATLAS ASR: CUDA is not active in current PyTorch runtime. Operating on CPU."
+            )
+            return "cpu"
+        return "cpu"
+
+    def _verify_sovereign_access(self) -> None:
+        """Validate that user has approved Hugging Face token access to NCAIR1 models."""
+        if not self._token:
+            raise AudioProcessingError(
+                "HF_TOKEN is not set. Access to official sovereign N-ATLAS ASR models "
+                "(NCAIR1/Yoruba-ASR, NCAIR1/Hausa-ASR, NCAIR1/Igbo-ASR, NCAIR1/NigerianAccentedEnglish) "
+                "requires an authorized Hugging Face token. "
+                "Please configure HF_TOKEN in your environment or .env file with access granted at "
+                "https://huggingface.co/NCAIR1/Yoruba-ASR."
+            )
+
+        import httpx
+
+        headers = {"Authorization": f"Bearer {self._token}"}
+        try:
+            resp = httpx.get(
+                "https://huggingface.co/api/models/NCAIR1/Yoruba-ASR",
+                headers=headers,
+                timeout=5.0,
+            )
+            if resp.status_code in (401, 403):
+                raise AudioProcessingError(
+                    f"Access to sovereign N-ATLAS models is restricted (HTTP {resp.status_code}). "
+                    "Verify that your HF_TOKEN has accepted the access terms at "
+                    "https://huggingface.co/NCAIR1/Yoruba-ASR."
                 )
+        except httpx.RequestError as exc:
+            logger.warning(
+                "Unable to reach Hugging Face to verify token access (proceeding with cached weights): %s",
+                exc,
+            )
 
-                # If CUDA failed, try CPU fallback for same candidate
-                if device == "cuda":
-                    try:
-                        logger.info("Retrying '%s' on CPU with int8...", candidate)
-                        model = self._init_whisper_model(candidate, "cpu", "int8")
-                        self._models[requested_model] = (model, candidate)
-                        return model, candidate
-                    except Exception as cpu_exc:  # noqa: BLE001
-                        last_error = cpu_exc
-                        logger.warning(
-                            "Failed CPU fallback for '%s': %s", candidate, cpu_exc
-                        )
+    def _load_pipeline(self, model_name: str) -> ASRModelPipelineProtocol:
+        """Load and cache the official transformers ASR pipeline for model_name."""
+        if model_name in self._pipelines:
+            return self._pipelines[model_name]
 
-        raise AudioProcessingError(
-            f"Unable to load ASR model '{requested_model}' or fallback '{self.fallback_model}': {last_error}"
+        try:
+            from transformers import pipeline  # type: ignore[import-not-found]
+        except ImportError as exc:
+            raise ImportError(
+                "transformers is required for local ASR serving. "
+                "Install via: pip install 'natlas[server]'"
+            ) from exc
+
+        logger.info(
+            "Loading sovereign ASR checkpoint '%s' on %s...",
+            model_name,
+            self._active_device,
         )
+
+        pipe = pipeline(
+            "automatic-speech-recognition",
+            model=model_name,
+            token=self._token,
+            device=self._active_device,
+        )
+        self._pipelines[model_name] = pipe
+        return pipe
 
     def transcribe(
         self,
@@ -310,50 +336,29 @@ class ASREngine:
         model_name: str,
         language: str,
     ) -> TranscriptionResponse:
-        """Run Whisper transcription on 16kHz WAV audio bytes."""
-        try:
-            import faster_whisper  # noqa: F401
-        except ImportError as exc:
-            raise ImportError(
-                "faster-whisper is required for local ASR serving. "
-                "Install via: pip install 'natlas[server]'"
-            ) from exc
+        """Run sovereign ASR transcription on 16kHz WAV audio bytes."""
+        import unicodedata
 
-        model, active_model_name = self._resolve_and_load(model_name)
         audio_np = _wav_to_float32_array(audio_wav_bytes)
+        duration_seconds = float(len(audio_np) / 16000.0) if len(audio_np) > 0 else 0.0
 
-        normalized_lang = language.strip().lower()
-        whisper_lang = WHISPER_LANG_MAP.get(normalized_lang, None)
+        pipe = self._load_pipeline(model_name)
 
-        transcribe_fn = model.transcribe
         try:
-            segments, info = transcribe_fn(audio_np, language=whisper_lang)
-            full_text = " ".join(
-                [str(getattr(seg, "text", "")).strip() for seg in segments]
-            ).strip()
-        except RuntimeError as exc:
-            # If cuBLAS or CUDA runtime error occurs during encode, retry on CPU
-            if "cublas" in str(exc).lower() or "cuda" in str(exc).lower():
-                logger.warning(
-                    "CUDA runtime error during ASR (%s). Switching to CPU...", exc
-                )
-                cpu_model = self._init_whisper_model(active_model_name, "cpu", "int8")
-                self._models[model_name] = (cpu_model, active_model_name)
-                cpu_transcribe = cpu_model.transcribe
-                segments, info = cpu_transcribe(audio_np, language=whisper_lang)
-                full_text = " ".join(
-                    [str(getattr(seg, "text", "")).strip() for seg in segments]
-                ).strip()
+            result = pipe(audio_np)
+            if isinstance(result, list) and len(result) > 0:
+                raw_text = str(result[0].get("text", "")).strip()
+            elif isinstance(result, dict):
+                raw_text = str(result.get("text", "")).strip()
             else:
-                raise AudioProcessingError(
-                    f"ASR transcription runtime failure: {exc}"
-                ) from exc
+                raw_text = ""
+            normalized_text = unicodedata.normalize("NFC", raw_text)
         except Exception as exc:
             raise AudioProcessingError(f"ASR transcription failed: {exc}") from exc
 
         return TranscriptionResponse(
-            text=full_text,
+            text=normalized_text,
             language=language,
-            model=active_model_name,
-            duration_seconds=getattr(info, "duration", None),
+            model=model_name,
+            duration_seconds=duration_seconds,
         )

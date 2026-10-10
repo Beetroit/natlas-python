@@ -25,6 +25,7 @@ def serve(
     """Launch the local OpenAI-compatible N-ATLAS REST API server."""
     import uvicorn
 
+    from natlas.exceptions import AudioProcessingError
     from natlas.server.app import create_app
     from natlas.server.engine import ASREngine, LlamaCppEngine
 
@@ -47,6 +48,9 @@ def serve(
     try:
         console.print(f"[cyan]Initializing ASR engine on {device}...[/cyan]")
         asr_engine = ASREngine(device=device)
+    except AudioProcessingError as exc:
+        console.print(f"[bold red]Strict Sovereign ASR Check Failed: {exc}[/bold red]")
+        raise typer.Exit(code=1) from exc
     except (ImportError, RuntimeError, OSError) as exc:
         console.print(f"[yellow]ASR engine initialization skipped: {exc}[/yellow]")
 
