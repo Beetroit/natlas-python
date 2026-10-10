@@ -83,8 +83,8 @@ class LlamaCppEngine:
             )
         except (ImportError, ModuleNotFoundError) as exc:
             raise ImportError(
-                "llama-cpp-python is required for local inference. "
-                "Install via: pip install 'natlas[server]'"
+                "llama-cpp-python is required for local GGUF inference. "
+                "Install via: uv pip install llama-cpp-python (or uv sync --extra llama)"
             ) from exc
 
     def generate(

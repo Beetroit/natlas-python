@@ -3,6 +3,7 @@
 import typer
 
 from natlas.cli.chat import chat
+from natlas.cli.pull import pull
 from natlas.cli.serve import serve
 
 app = typer.Typer(
@@ -13,6 +14,7 @@ app = typer.Typer(
 
 app.command("serve")(serve)
 app.command("chat")(chat)
+app.command("pull")(pull)
 
 if __name__ == "__main__":
     app()
