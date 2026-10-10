@@ -16,7 +16,11 @@ from natlas.api.types import (
     TranscriptionResponse,
     UsageInfo,
 )
-from natlas.config import DEFAULT_TEMPERATURE, DEFAULT_TOP_P
+from natlas.config import (
+    DEFAULT_REPETITION_PENALTY,
+    DEFAULT_TEMPERATURE,
+    DEFAULT_TOP_P,
+)
 from natlas.exceptions import ModelNotFoundError
 
 
@@ -28,6 +32,8 @@ class LLMEngineProtocol(Protocol):
         messages: list[dict[str, str]],
         *,
         temperature: float,
+        repetition_penalty: float = DEFAULT_REPETITION_PENALTY,
+        logit_bias: dict[int, float] | None = None,
         max_tokens: int,
         top_p: float,
     ) -> ChatCompletionResponse: ...
@@ -37,6 +43,8 @@ class LLMEngineProtocol(Protocol):
         messages: list[dict[str, str]],
         *,
         temperature: float,
+        repetition_penalty: float = DEFAULT_REPETITION_PENALTY,
+        logit_bias: dict[int, float] | None = None,
         max_tokens: int,
         top_p: float,
     ) -> Iterator[ChatCompletionChunk]: ...
@@ -96,6 +104,8 @@ class LlamaCppEngine:
         messages: list[dict[str, str]],
         *,
         temperature: float = DEFAULT_TEMPERATURE,
+        repetition_penalty: float = DEFAULT_REPETITION_PENALTY,
+        logit_bias: dict[int, float] | None = None,
         max_tokens: int = 1024,
         top_p: float = DEFAULT_TOP_P,
     ) -> ChatCompletionResponse:
@@ -106,6 +116,8 @@ class LlamaCppEngine:
         res = self._llm.create_chat_completion(
             messages=messages,
             temperature=temperature,
+            repeat_penalty=repetition_penalty,
+            logit_bias=logit_bias,
             max_tokens=max_tokens,
             top_p=top_p,
             stream=False,
@@ -141,6 +153,8 @@ class LlamaCppEngine:
         messages: list[dict[str, str]],
         *,
         temperature: float = DEFAULT_TEMPERATURE,
+        repetition_penalty: float = DEFAULT_REPETITION_PENALTY,
+        logit_bias: dict[int, float] | None = None,
         max_tokens: int = 1024,
         top_p: float = DEFAULT_TOP_P,
     ) -> Iterator[ChatCompletionChunk]:
@@ -151,6 +165,8 @@ class LlamaCppEngine:
         stream_iter = self._llm.create_chat_completion(
             messages=messages,
             temperature=temperature,
+            repeat_penalty=repetition_penalty,
+            logit_bias=logit_bias,
             max_tokens=max_tokens,
             top_p=top_p,
             stream=True,

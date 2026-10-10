@@ -61,6 +61,8 @@ class Chat:
         payload = {
             "model": model,
             "messages": guarded_messages,
+            "language": language,
+            "tone_enforcement": tone_enforcement,
             "temperature": temperature,
             "repetition_penalty": repetition_penalty,
             "max_tokens": max_tokens,
@@ -106,6 +108,8 @@ class Chat:
         payload = {
             "model": model,
             "messages": guarded_messages,
+            "language": language,
+            "tone_enforcement": tone_enforcement,
             "temperature": temperature,
             "repetition_penalty": repetition_penalty,
             "max_tokens": max_tokens,
@@ -165,6 +169,8 @@ class AsyncChat:
         payload = {
             "model": model,
             "messages": guarded_messages,
+            "language": language,
+            "tone_enforcement": tone_enforcement,
             "temperature": temperature,
             "repetition_penalty": repetition_penalty,
             "max_tokens": max_tokens,
@@ -210,6 +216,8 @@ class AsyncChat:
         payload = {
             "model": model,
             "messages": guarded_messages,
+            "language": language,
+            "tone_enforcement": tone_enforcement,
             "temperature": temperature,
             "repetition_penalty": repetition_penalty,
             "max_tokens": max_tokens,
