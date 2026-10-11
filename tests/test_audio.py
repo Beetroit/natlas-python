@@ -43,3 +43,40 @@ def test_transcode_and_wav_to_float32() -> None:
     float_arr = _wav_to_float32_array(raw_wav)
     assert len(float_arr) == 1600
     assert float_arr.dtype.name == "float32"
+
+
+def test_asr_engine_transcribe_passes_generate_kwargs() -> None:
+    """Verify that ASREngine.transcribe supplies target language generate_kwargs to the pipeline."""
+    import io
+    import wave
+    from unittest.mock import MagicMock
+
+    from natlas.server.engine import WHISPER_LANG_MAP, ASREngine
+
+    assert WHISPER_LANG_MAP["yoruba"] == "yo"
+    assert WHISPER_LANG_MAP["hausa"] == "ha"
+    assert WHISPER_LANG_MAP["english"] == "en"
+
+    buf = io.BytesIO()
+    with wave.open(buf, "wb") as wf:
+        wf.setnchannels(1)
+        wf.setsampwidth(2)
+        wf.setframerate(16000)
+        wf.writeframes(b"\x00\x00" * 1600)
+    wav_bytes = buf.getvalue()
+
+    engine = ASREngine()
+    mock_pipe = MagicMock()
+    mock_pipe.return_value = {"text": "Bawo ni"}
+    engine._pipelines["NCAIR1/Yoruba-ASR"] = mock_pipe
+
+    response = engine.transcribe(
+        wav_bytes, model_name="NCAIR1/Yoruba-ASR", language="yoruba"
+    )
+    assert response.text == "Bawo ni"
+    assert response.language == "yoruba"
+
+    mock_pipe.assert_called_once()
+    _, kwargs = mock_pipe.call_args
+    assert kwargs.get("generate_kwargs") == {"task": "transcribe", "language": "yo"}
+    assert kwargs.get("return_timestamps") is True

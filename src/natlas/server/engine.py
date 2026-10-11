@@ -193,6 +193,7 @@ class LlamaCppEngine:
 
 import io
 import logging
+import warnings
 import wave
 from collections.abc import Iterator
 from typing import Final
@@ -341,12 +342,36 @@ class ASREngine:
             self._active_device,
         )
 
+        # Filter transformers internal generation_config / suppress_tokens warning
+        warnings.filterwarnings(
+            "ignore",
+            message=r"Passing `generation_config` together with generation-related arguments.*",
+            category=UserWarning,
+        )
+
         pipe = pipeline(
             "automatic-speech-recognition",
             model=model_name,
             token=self._token,
             device=self._active_device,
+            ignore_warning=True,
         )
+
+        # Suppress BPE tokenizer space cleanup warning and token corruption
+        tokenizer = getattr(pipe, "tokenizer", None)
+        if tokenizer is not None:
+            tokenizer.clean_up_tokenization_spaces = False
+
+        # Clear legacy forced_decoder_ids in favor of explicit task & language generation kwargs
+        model = getattr(pipe, "model", None)
+        if model is not None:
+            generation_config = getattr(model, "generation_config", None)
+            if generation_config is not None:
+                generation_config.forced_decoder_ids = None
+            config = getattr(model, "config", None)
+            if config is not None:
+                config.forced_decoder_ids = None
+
         self._pipelines[model_name] = pipe
         return pipe
 
@@ -364,12 +389,20 @@ class ASREngine:
 
         pipe = self._load_pipeline(model_name)
 
+        target_lang = WHISPER_LANG_MAP.get(language.strip().lower())
+        generate_kwargs: dict[str, object] = {
+            "task": "transcribe",
+        }
+        if target_lang is not None:
+            generate_kwargs["language"] = target_lang
+
         try:
             result = pipe(
                 audio_np,
                 chunk_length_s=30,
                 stride_length_s=4,
                 return_timestamps=True,
+                generate_kwargs=generate_kwargs,
             )
             if isinstance(result, list) and len(result) > 0:
                 raw_text = str(result[0].get("text", "")).strip()
