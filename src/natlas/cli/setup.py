@@ -10,7 +10,9 @@ from rich.table import Table
 
 from natlas.cli.hardware import (
     detect_gpu_acceleration,
+    ensure_asr_dependencies,
     ensure_llama_cpp,
+    is_asr_installed,
     is_llama_cpp_installed,
 )
 from natlas.cli.pull import resolve_cached_llm
@@ -104,16 +106,33 @@ def setup(
         audio_info = "Install via: uv pip install av"
     table.add_row("Audio Transcoder", audio_status, audio_info)
 
+    # 7. Sovereign ASR Engine (transformers / torch)
+    asr_ready = is_asr_installed()
+    if asr_ready:
+        asr_status = "[green]Installed[/green]"
+        asr_info = "Official transformers & PyTorch speech pipelines active"
+    else:
+        asr_status = "[bold red]Not Installed[/bold red]"
+        asr_info = "Requires transformers, torch, and soundfile for sovereign ASR"
+    table.add_row("Sovereign ASR (transformers)", asr_status, asr_info)
+
     console.print(table)
     console.print()
 
-    # If llama-cpp is missing, bootstrap it
+    # Bootstrap missing components
     if not llama_ready:
         console.print(
             "[bold yellow]Action Needed:[/bold yellow] LLM inference engine is missing."
         )
         ensure_llama_cpp(auto_yes=yes)
-    else:
+
+    if not asr_ready:
+        console.print(
+            "[bold yellow]Action Needed:[/bold yellow] Sovereign ASR dependencies are missing."
+        )
+        ensure_asr_dependencies(auto_yes=yes)
+
+    if llama_ready and asr_ready:
         console.print(
             "[bold green]All core inference components are installed and ready to serve![/bold green]"
         )

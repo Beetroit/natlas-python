@@ -183,3 +183,98 @@ def ensure_llama_cpp(auto_yes: bool = False) -> bool:
         "[bold red]Installation was not completed. Falling back to mock mode.[/bold red]"
     )
     return False
+
+
+def is_asr_installed() -> bool:
+    """Check if transformers and torch are installed for sovereign ASR inference."""
+    try:
+        importlib.import_module("transformers")
+        importlib.import_module("torch")
+        return True
+    except (ImportError, ModuleNotFoundError, RuntimeError, OSError):
+        return False
+
+
+def install_asr_dependencies(backend: AccelerationBackend) -> bool:
+    """Install PyTorch and Hugging Face transformers with proper index resolution."""
+    base_installer = "uv" if shutil.which("uv") else sys.executable
+    is_uv = base_installer == "uv"
+
+    prefix: list[str] = [base_installer]
+    if is_uv:
+        prefix.extend(["pip", "install", "--python", sys.executable])
+    else:
+        prefix.extend(["-m", "pip", "install"])
+
+    # Step 1: Install PyTorch (CUDA 12.4 index if NVIDIA detected)
+    torch_cmd = list(prefix)
+    torch_cmd.extend(["torch", "torchaudio"])
+    if backend == "cuda":
+        torch_cmd.extend(["--index-url", "https://download.pytorch.org/whl/cu124"])
+
+    console.print(f"[cyan]Step 1/2 (PyTorch): {' '.join(torch_cmd)}[/cyan]")
+    try:
+        res = subprocess.run(torch_cmd, check=False)
+        if res.returncode != 0:
+            console.print("[bold red]Failed to install PyTorch.[/bold red]")
+            return False
+    except (subprocess.SubprocessError, OSError) as exc:
+        console.print(f"[bold red]PyTorch installation failed: {exc}[/bold red]")
+        return False
+
+    # Step 2: Install transformers and soundfile from default PyPI
+    pypi_cmd = list(prefix)
+    pypi_cmd.extend(["transformers", "soundfile"])
+
+    console.print(f"[cyan]Step 2/2 (Transformers & Audio): {' '.join(pypi_cmd)}[/cyan]")
+    try:
+        res = subprocess.run(pypi_cmd, check=False)
+        return res.returncode == 0 and is_asr_installed()
+    except (subprocess.SubprocessError, OSError) as exc:
+        console.print(f"[bold red]Transformers installation failed: {exc}[/bold red]")
+        return False
+
+
+def ensure_asr_dependencies(auto_yes: bool = False) -> bool:
+    """Verify ASR dependencies (transformers, torch) or prompt to auto-install."""
+    if is_asr_installed():
+        return True
+
+    backend, details = detect_gpu_acceleration()
+    console.print(
+        "\n[bold yellow]Sovereign ASR dependencies (transformers, torch) are missing.[/bold yellow]"
+    )
+    console.print(f"[bold green]Detected Hardware:[/bold green] {details}")
+
+    if backend == "cuda":
+        console.print(
+            "[dim]Configuring PyTorch with NVIDIA CUDA 12.4 wheel index for hardware-accelerated speech recognition.[/dim]"
+        )
+
+    should_install = auto_yes
+    if not should_install and sys.stdin.isatty():
+        should_install = Confirm.ask(
+            f"Would you like to install transformers and PyTorch ({backend.upper()}) now?",
+            default=True,
+        )
+
+    if not should_install:
+        console.print(
+            "[yellow]Skipping ASR installation. Audio transcription endpoints will return 500.[/yellow]"
+        )
+        return False
+
+    console.print(
+        f"[bold cyan]Installing ASR dependencies (transformers, torch {backend.upper()})...[/bold cyan]"
+    )
+    success = install_asr_dependencies(backend)
+    if success:
+        console.print(
+            "[bold green]ASR dependencies installed successfully![/bold green]"
+        )
+        return True
+
+    console.print(
+        "[bold red]ASR dependencies installation was not completed.[/bold red]"
+    )
+    return False

@@ -365,7 +365,12 @@ class ASREngine:
         pipe = self._load_pipeline(model_name)
 
         try:
-            result = pipe(audio_np)
+            result = pipe(
+                audio_np,
+                chunk_length_s=30,
+                stride_length_s=4,
+                return_timestamps=True,
+            )
             if isinstance(result, list) and len(result) > 0:
                 raw_text = str(result[0].get("text", "")).strip()
             elif isinstance(result, dict):

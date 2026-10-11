@@ -34,7 +34,12 @@ def serve(
     """Launch the local OpenAI-compatible N-ATLAS REST API server."""
     import uvicorn
 
-    from natlas.cli.hardware import ensure_llama_cpp, is_llama_cpp_installed
+    from natlas.cli.hardware import (
+        ensure_asr_dependencies,
+        ensure_llama_cpp,
+        is_asr_installed,
+        is_llama_cpp_installed,
+    )
     from natlas.cli.pull import pull_model, resolve_cached_llm
     from natlas.exceptions import AudioProcessingError
     from natlas.server.app import create_app
@@ -94,6 +99,9 @@ def serve(
                 )
 
     asr_engine = None
+    if not is_asr_installed():
+        ensure_asr_dependencies(auto_yes=yes)
+
     try:
         console.print(f"[cyan]Initializing ASR engine on {device}...[/cyan]")
         asr_engine = ASREngine(device=device)
